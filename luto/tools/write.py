@@ -62,15 +62,15 @@ from luto.tools.report.create_html import data2html
 from luto.tools.report.create_static_maps import TIF2MAP
 
 from luto.tools.xarray_tools import calc_bio_hist_sum, calc_bio_score_species, interp_bio_species_to_shards, calc_bio_score_by_yr
-        
+
 
 timestamp_write = datetime.now().strftime('%Y_%m_%d__%H_%M_%S')
 
 def write_outputs(data: Data):
-    
-    memory_thread = threading.Thread(target=log_memory_usage, daemon=True)
-    memory_thread.start()
-    
+
+    # memory_thread = threading.Thread(target=log_memory_usage, daemon=True)
+    # memory_thread.start()
+
     # Write the model outputs to file
     write_data(data)
     # Move the log files to the output directory
@@ -163,6 +163,7 @@ def write_output_single_year(data: Data, yr_cal, path_yr, yr_cal_sim_pre=None):
     # Write the reset outputs
     write_dvar_area(data, yr_cal, path_yr)
     write_quantity(data, yr_cal, path_yr, yr_cal_sim_pre)
+    write_quantity_separate(data, yr_cal, path_yr)
     write_revenue_cost_ag(data, yr_cal, path_yr)
     write_revenue_cost_ag_management(data, yr_cal, path_yr)
     write_revenue_cost_non_ag(data, yr_cal, path_yr)
@@ -365,7 +366,64 @@ def write_quantity(data: Data, yr_cal, path, yr_cal_sim_pre=None):
     # NOTE:Non-agricultural production are all zeros, therefore skip the calculation
     # --------------------------------------------------------------------------------------------
 
+def write_quantity_separate(data: Data, yr_cal, path):
+    yr_idx = yr_cal - data.YR_CAL_BASE
+    print(f'Writing quantity_separate outputs for {yr_cal}')
+    index_levels = ['Landuse Type', 'Landuse subtype', 'Landuse', 'Land management', 'Production (tonnes, KL)']
 
+    ag_X_mrj = data.ag_dvars[yr_cal]
+    ag_q_mrp = ag_quantity.get_quantity_matrices(data, yr_idx)
+    ag_q_mrj = np.einsum('mrp,pj->mrj', ag_q_mrp, data.LU2PR.astype(bool))
+    ag_q_mrj = np.einsum('mrj,mrj->mrj', ag_q_mrj, ag_X_mrj)
+    ag_jm = np.einsum('mrj->jm', ag_q_mrj)
+    ag_df = pd.DataFrame(
+        ag_jm.reshape(-1).tolist(),
+        index=pd.MultiIndex.from_product(
+            [['Agricultural Landuse'],
+             ['Agricultural Landuse'],
+             data.AGRICULTURAL_LANDUSES,
+             data.LANDMANS])).reset_index()
+    ag_df.columns = index_levels
+
+    non_ag_X_rk = data.non_ag_dvars[yr_cal]
+    q_crk = non_ag_quantity.get_quantity_matrix(data, ag_q_mrp, data.LUMAP)
+    non_ag_k = np.einsum('crk,rk->k', q_crk, non_ag_X_rk)
+    non_ag_df = pd.DataFrame(
+        non_ag_k,
+        index=pd.MultiIndex.from_product(
+            [['Non-agricultural Landuse'],
+             ['Non-Agricultural Landuse'],
+             settings.NON_AG_LAND_USES.keys(),
+             ['None']])).reset_index()
+    non_ag_df.columns = index_levels
+
+    ag_man_X_mrj = data.ag_man_dvars[yr_cal]
+    ag_man_q_mrp = ag_quantity.get_agricultural_management_quantity_matrices(data, ag_q_mrp, yr_idx)
+
+    ag_man_q_mrj_dict = {}
+
+    for am, am_lus in AG_MANAGEMENTS_TO_LAND_USES.items():
+        current_ag_man_q_mrj = np.einsum('mrp,pj->mrj', ag_man_q_mrp[am], data.LU2PR.astype(bool))
+        ag_man_q_mrj = np.einsum('mrj,mrj->mrj', current_ag_man_q_mrj, ag_man_X_mrj[am])
+        ag_man_q_mrj_dict[am] = ag_man_q_mrj
+    AM_dfs = []
+    for am, am_lus in AG_MANAGEMENTS_TO_LAND_USES.items():  # Agricultural managements contribution
+        am_mrj = ag_man_q_mrj_dict[am]
+        am_jm = np.einsum('mrj->jm', am_mrj)
+        df_am = pd.DataFrame(
+            am_jm.reshape(-1).tolist(),
+            index=pd.MultiIndex.from_product([
+                ['Agricultural Management'],
+                [am],
+                data.AGRICULTURAL_LANDUSES,
+                data.LANDMANS
+            ])).reset_index()
+        df_am.columns = index_levels
+        AM_dfs.append(df_am)
+    AM_df = pd.concat(AM_dfs)
+
+    df = pd.concat([ag_df, non_ag_df, AM_df])
+    df.to_csv(os.path.join(path, f'quantity_production_kt_separate_{yr_cal}.csv'), index=False)
 
 
 def write_revenue_cost_ag(data: Data, yr_cal, path):
@@ -740,7 +798,7 @@ def write_area_transition_start_end(data: Data, path):
     yr_cal_end = years[-1]
 
     # Get the decision variables for the start year
-    # NOTE: If settings.RESFACTPR != 1, then the `dvar_base` will be an approximation, because 
+    # NOTE: If settings.RESFACTPR != 1, then the `dvar_base` will be an approximation, because
     #       we are selecting the centroids cell to represent the (RESFACTOR * RESFACTOR) neighboring cells.
     dvar_base = tools.lumap2ag_l_mrj(data.lumaps[data.YR_CAL_BASE], data.lmmaps[data.YR_CAL_BASE])
 
@@ -948,7 +1006,7 @@ def write_water(data: Data, yr_cal, path):
     # Write the separate water use to CSV
     df_water_seperate = pd.concat(df_water_seperate_dfs)
     df_water_seperate = df_water_seperate.melt(
-        id_vars=['Year','region','Landuse Type','Landuse','Water_supply'],
+        id_vars=['Year','region','Landuse Type', 'Landuse subtype','Landuse','Water_supply'],
         value_vars=['Without CCI', 'With CCI'],
         var_name='Climate Change existence',
         value_name='Value (ML)'
