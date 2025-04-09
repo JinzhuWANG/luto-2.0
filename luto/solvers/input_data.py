@@ -561,9 +561,23 @@ def get_limits(
         else 0
     )
 
-    limits["GBF4_SNES"] = ag_biodiversity.get_GBF4_SNES_limits(data, yr_cal)
-    limits["GBF4_ECNES"] = ag_biodiversity.get_GBF4_ECNES_limits(data, yr_cal)
-    limits["GBF8_species_conservation"] = ag_biodiversity.get_GBF8_species_conservation_limits(data, yr_cal)
+    limits["GBF4_SNES"] = (
+        ag_biodiversity.get_GBF4_SNES_limits(data, yr_cal)
+        if settings.BIODIVERSTIY_TARGET_GBF_4_SNES == 'on'
+        else 0
+    )
+
+    limits["GBF4_ECNES"] = (
+        ag_biodiversity.get_GBF4_ECNES_limits(data, yr_cal)
+        if settings.BIODIVERSTIY_TARGET_GBF_4_ECNES == 'on'
+        else 0
+    )
+
+    limits["GBF8_species_conservation"] = (
+        ag_biodiversity.get_GBF8_species_conservation_limits(data, yr_cal)
+        if settings.BIODIVERSTIY_TARGET_GBF_8 == 'on'
+        else 0
+    )
 
     ag_reg_adoption, non_ag_reg_adoption = ag_transition.get_regional_adoption_limits(data, yr_cal)
     limits["ag_regional_adoption"] = ag_reg_adoption

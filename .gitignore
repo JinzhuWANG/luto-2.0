@@ -36,3 +36,5 @@ gurobi.log
 
 *.tmp
 **/*.7z
+
+myCode/**
