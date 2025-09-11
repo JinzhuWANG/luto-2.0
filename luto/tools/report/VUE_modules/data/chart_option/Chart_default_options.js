@@ -7,6 +7,9 @@ window.Chart_default_options = {
     title: {
         text: ''
     },
+    lang: {
+        numericSymbols: ['K', 'M', 'B', 'T', 'P', 'E']
+    },
     yAxis: {
         title: {
             text: "Area (million km2)",
